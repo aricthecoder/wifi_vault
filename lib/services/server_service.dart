@@ -93,7 +93,7 @@ class ServerService {
         await _handleDownloadSelectedZip(request, response);
       } else if (path == '/api/files') {
         _log("Viewing file list", request);
-        await _serveApiFilesList(response);
+        await _serveApiFilesList(request, response);
       } else if (path == '/api/download') {
         final filePathParam = request.uri.queryParameters['path'] ?? 'unknown';
         _log("Downloading: $filePathParam", request);
@@ -235,7 +235,7 @@ Future<void> _handleUpload(HttpRequest request, HttpResponse response) async {
       encoder.create(zipFilePath);
       
       for (String name in filenames) {
-        if (name.contains('..') || name.contains('/') || name.contains('\\')) continue;
+        if (name.contains('..') || name.startsWith('/') || name.startsWith('\\')) continue;
         final filePath = '${dir.path}${Platform.pathSeparator}$name';
         final file = File(filePath);
         if (file.existsSync()) {
@@ -269,8 +269,23 @@ Future<void> _handleUpload(HttpRequest request, HttpResponse response) async {
     }
   }
 
-    Future<void> _serveApiFilesList(HttpResponse response) async {
-    final dir = Directory(sharedDirectoryPath);
+      Future<void> _serveApiFilesList(HttpRequest request, HttpResponse response) async {
+    String subPath = request.uri.queryParameters['path'] ?? '';
+    
+    // Security check: Prevent directory traversal
+    if (subPath.contains('..') || subPath.startsWith('/') || subPath.startsWith('\\')) {
+      response.statusCode = HttpStatus.badRequest;
+      response.write('[]');
+      await response.close();
+      return;
+    }
+
+    final targetDirPath = subPath.isEmpty 
+        ? sharedDirectoryPath 
+        : '$sharedDirectoryPath${Platform.pathSeparator}$subPath';
+    
+    final dir = Directory(targetDirPath);
+    
     if (!dir.existsSync()) {
       response.statusCode = HttpStatus.notFound;
       response.write('[]');
@@ -279,11 +294,19 @@ Future<void> _handleUpload(HttpRequest request, HttpResponse response) async {
     }
 
     final entities = dir.listSync();
-    List<Map<String, String>> filesData = [];
+    List<Map<String, dynamic>> filesData = [];
 
     for (var entity in entities) {
-      if (entity is File) {
-        final name = entity.uri.pathSegments.last;
+      final name = entity.path.split(Platform.pathSeparator).last;
+
+      if (entity is Directory) {
+        filesData.add({
+          'name': name,
+          'ext': '',
+          'size': '-',
+          'isDir': true
+        });
+      } else if (entity is File) {
         final sizeBytes = entity.lengthSync();
         final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
         
@@ -298,7 +321,8 @@ Future<void> _handleUpload(HttpRequest request, HttpResponse response) async {
         filesData.add({
           'name': name,
           'ext': ext,
-          'size': formattedSize
+          'size': formattedSize,
+          'isDir': false
         });
       }
     }
@@ -314,9 +338,9 @@ Future<void> _handleUpload(HttpRequest request, HttpResponse response) async {
     response.close();
   }
 
-Future<void> _serveFile(HttpRequest request, HttpResponse response, {bool inline = false}) async {
+  Future<void> _serveFile(HttpRequest request, HttpResponse response, {bool inline = false}) async {
     final requestedPath = request.uri.queryParameters['path'];
-    if (requestedPath == null || requestedPath.contains('..') || requestedPath.contains('/') || requestedPath.contains('\\')) {
+    if (requestedPath == null || requestedPath.contains('..') || requestedPath.startsWith('/') || requestedPath.startsWith('\\')) {
        _sendNotFound(response);
        return;
     }
