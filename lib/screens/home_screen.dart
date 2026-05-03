@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:flutter/services.dart';
 import 'dart:math';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -138,15 +139,28 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context) {
         final ctrl = TextEditingController();
         return AlertDialog(
-          title: Text('Connect to \${vault.ip}'),
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Connect to ${vault.ip}'),
           content: TextField(
             controller: ctrl,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(hintText: "Enter 4-digit PIN"),
+            maxLength: 4,
+            decoration: const InputDecoration(
+              hintText: "Enter 4-digit PIN",
+              border: OutlineInputBorder(),
+            ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            TextButton(onPressed: () { peerPin = ctrl.text; Navigator.pop(context); }, child: const Text('Connect')),
+            TextButton(
+              onPressed: () => Navigator.pop(context), 
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey))
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary),
+              onPressed: () { peerPin = ctrl.text; Navigator.pop(context); }, 
+              child: const Text('Connect')
+            ),
           ],
         );
       }
@@ -159,10 +173,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
     File file = File(result.files.single.path!);
     
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sending to \${vault.ip}...')));
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Sending to ${vault.ip}...')));
 
     try {
-      var request = http.MultipartRequest('POST', Uri.parse('http://\${vault.ip}:\${vault.port}/upload'));
+      var request = http.MultipartRequest('POST', Uri.parse('http://${vault.ip}:${vault.port}/api/upload'));
       request.headers['X-Vault-Pin'] = peerPin!;
       request.files.add(await http.MultipartFile.fromPath('file', file.path));
 
@@ -175,7 +189,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: \$e')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -186,248 +200,386 @@ class _HomeScreenState extends State<HomeScreen> {
         : null;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('WiFi Vault'),
-        centerTitle: true,
-        elevation: 0,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Status Indicator
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              decoration: BoxDecoration(
-                color: _isServerRunning ? Colors.green.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: _isServerRunning ? Colors.green : Colors.grey,
-                  width: 2,
-                )
-              ),
-              child: Column(
-                children: [
-                  Icon(
-                    _isServerRunning ? Icons.wifi_tethering : Icons.wifi_tethering_off,
-                    size: 48,
-                    color: _isServerRunning ? Colors.green : Colors.grey,
+      backgroundColor: const Color(0xFF0F172A),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHeader(),
+              const SizedBox(height: 32),
+              _buildDirectoryCard(),
+              const SizedBox(height: 24),
+              _buildToggleServerButton(),
+              const SizedBox(height: 32),
+              
+              if (_isServerRunning && serverUrl != null) ...[
+                _buildPinCard(),
+                const SizedBox(height: 24),
+                _buildQrCard(serverUrl),
+                if (_nearbyVaults.isNotEmpty) ...[
+                  const SizedBox(height: 32),
+                  _buildNearbyVaults(),
+                ],
+                const SizedBox(height: 32),
+                _buildTerminalLogs(),
+                const SizedBox(height: 40),
+              ] else ...[
+                const SizedBox(height: 60),
+                Center(
+                  child: Column(
+                    children: [
+                      Icon(Icons.wifi_lock, size: 80, color: Colors.grey.withOpacity(0.2)),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Server Offline',
+                        style: TextStyle(color: Colors.grey.shade500, fontSize: 18),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Local IP: ${_localIp ?? "Detecting..."}',
+                        style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _isServerRunning ? 'Server is Running' : 'Server is Stopped',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: _isServerRunning ? Colors.green[700] : Colors.grey[700],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'WiFi Vault',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _isServerRunning ? Colors.greenAccent : Colors.grey,
+                      boxShadow: _isServerRunning ? [
+                        BoxShadow(color: Colors.greenAccent.withOpacity(0.5), blurRadius: 8)
+                      ] : [],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _isServerRunning ? 'Active on Network' : 'Disconnected',
+                      style: TextStyle(
+                        color: _isServerRunning ? Colors.greenAccent : Colors.grey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
-              ),
-            ),
-            
-            const SizedBox(height: 32),
+              )
+            ],
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E293B),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: const Icon(Icons.cloud_sync, color: Colors.blueAccent),
+        )
+      ],
+    );
+  }
 
-            // Directory Selection
-            Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Shared Directory',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _selectedDirectoryPath ?? 'No directory selected',
-                            style: TextStyle(
-                              color: _selectedDirectoryPath == null ? Colors.grey : Colors.black87,
-                              fontStyle: _selectedDirectoryPath == null ? FontStyle.italic : FontStyle.normal,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: _isServerRunning ? null : _pickDirectory,
-                          icon: const Icon(Icons.folder_open),
-                          color: Theme.of(context).primaryColor,
-                          tooltip: 'Select Directory',
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 32),
-
-            // Server Controls
-            ElevatedButton.icon(
-              onPressed: _toggleServer,
-              icon: Icon(_isServerRunning ? Icons.stop : Icons.play_arrow),
-              label: Text(_isServerRunning ? 'Stop Server' : 'Start Server', style: const TextStyle(fontSize: 18)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _isServerRunning ? Colors.red : Theme.of(context).primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-
-            const SizedBox(height: 32),
-
-            // URL and QR Code Display
-            if (_isServerRunning && serverUrl != null) ...[
-              const Divider(),
-              const SizedBox(height: 16),
-              
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.orange, width: 2),
-                ),
-                child: Column(
-                  children: [
-                    const Text('Security PIN', style: TextStyle(fontSize: 16, color: Colors.deepOrange, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    Text(
-                      _currentPin ?? '----',
-                      style: const TextStyle(fontSize: 36, letterSpacing: 12, fontWeight: FontWeight.bold, color: Colors.black87),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-
+  Widget _buildDirectoryCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.folder_shared, color: Colors.blueAccent, size: 20),
+              const SizedBox(width: 8),
               const Text(
-                'Access your files from any device on the same WiFi network:',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16),
+                'Shared Folder',
+                style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.w600),
               ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: SelectableText(
-                  serverUrl,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Center(
-                child: QrImageView(
-                  data: serverUrl,
-                  version: QrVersions.auto,
-                  size: 200.0,
-                  backgroundColor: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Scan the QR code or type the URL in your browser.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey),
-              ),
-
-              if (_isServerRunning && _nearbyVaults.isNotEmpty) ...[
-                const SizedBox(height: 32),
-                const Text(
-                  '📡 Nearby Vaults',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                ..._nearbyVaults.map((vault) => Card(
-                  color: Colors.blue.withOpacity(0.05),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: Colors.blue, width: 1),
-                  ),
-                  child: ListTile(
-                    leading: const Icon(Icons.phone_android, color: Colors.blue, size: 36),
-                    title: Text(vault.ip, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: const Text('Tap to send file directly'),
-                    trailing: ElevatedButton.icon(
-                      onPressed: () => _sendFileToVault(vault),
-                      icon: const Icon(Icons.send, size: 16),
-                      label: const Text('Send'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ),
-                )).toList(),
-              ],
-
-              const SizedBox(height: 32),
-              
-              const Text(
-                'Live Connection Logs',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                height: 200,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.black87,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade800),
-                ),
-                child: _serverLogs.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'Waiting for connections...',
-                          style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic),
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: _serverLogs.length,
-                        itemBuilder: (context, index) {
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 4.0),
-                            child: Text(
-                              _serverLogs[index],
-                              style: const TextStyle(
-                                color: Colors.greenAccent,
-                                fontFamily: 'monospace',
-                                fontSize: 13,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-              ),
-              const SizedBox(height: 16),
-            ] else if (!_isServerRunning) ...[
-              Center(
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
                 child: Text(
-                  'Local IP: ${_localIp ?? "Detecting..."}',
-                  style: const TextStyle(color: Colors.grey),
+                  _selectedDirectoryPath != null 
+                    ? _selectedDirectoryPath!.split(Platform.pathSeparator).last 
+                    : 'Tap to select folder...',
+                  style: TextStyle(
+                    color: _selectedDirectoryPath != null ? Colors.white : Colors.white38,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ]
+              GestureDetector(
+                onTap: _isServerRunning ? null : _pickDirectory,
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _isServerRunning ? Colors.transparent : Colors.blueAccent.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.edit, 
+                    color: _isServerRunning ? Colors.grey : Colors.blueAccent, 
+                    size: 20
+                  ),
+                ),
+              )
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToggleServerButton() {
+    return GestureDetector(
+      onTap: _toggleServer,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 300),
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: _isServerRunning 
+              ? [Colors.redAccent, Colors.deepOrange]
+              : [const Color(0xFF3B82F6), const Color(0xFF8B5CF6)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: (_isServerRunning ? Colors.redAccent : const Color(0xFF3B82F6)).withOpacity(0.3),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            )
+          ]
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(_isServerRunning ? Icons.power_settings_new : Icons.rocket_launch, color: Colors.white),
+            const SizedBox(width: 12),
+            Text(
+              _isServerRunning ? 'Stop Server' : 'Launch Server',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildPinCard() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          const Text('SECURITY PIN', style: TextStyle(color: Colors.blueAccent, fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 2)),
+          const SizedBox(height: 8),
+          Text(
+            _currentPin ?? '----',
+            style: const TextStyle(
+              fontSize: 40,
+              letterSpacing: 12,
+              fontWeight: FontWeight.w800,
+              color: Colors.white,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQrCard(String serverUrl) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          const Text(
+            'Scan to connect from any device',
+            style: TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+          const SizedBox(height: 24),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: QrImageView(
+              data: serverUrl,
+              version: QrVersions.auto,
+              size: 180.0,
+            ),
+          ),
+          const SizedBox(height: 24),
+          GestureDetector(
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: serverUrl));
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('URL copied to clipboard')));
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      serverUrl,
+                      style: const TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.w600, fontSize: 16),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Icon(Icons.copy, color: Colors.blueAccent, size: 18),
+                ],
+              ),
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNearbyVaults() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.radar, color: Colors.purpleAccent, size: 20),
+            const SizedBox(width: 8),
+            const Text(
+              'Nearby Vaults',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        ..._nearbyVaults.map((vault) => Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.purpleAccent.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.purpleAccent.withOpacity(0.3)),
+          ),
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            leading: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: Colors.purpleAccent.withOpacity(0.2), shape: BoxShape.circle),
+              child: const Icon(Icons.phone_android, color: Colors.purpleAccent),
+            ),
+            title: Text(vault.ip, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+            subtitle: const Text('Tap to send file', style: TextStyle(color: Colors.white54)),
+            trailing: IconButton(
+              icon: const Icon(Icons.send_rounded, color: Colors.purpleAccent),
+              onPressed: () => _sendFileToVault(vault),
+            ),
+          ),
+        )).toList(),
+      ],
+    );
+  }
+
+  Widget _buildTerminalLogs() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Live Logs',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white70),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          height: 180,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF020617), // Deep black
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFF1E293B)),
+          ),
+          child: _serverLogs.isEmpty
+            ? const Center(
+                child: Text('Waiting for activity...', style: TextStyle(color: Colors.white24, fontStyle: FontStyle.italic)),
+              )
+            : ListView.builder(
+                itemCount: _serverLogs.length,
+                itemBuilder: (context, index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6.0),
+                    child: Text(
+                      "> ${_serverLogs[index]}",
+                      style: const TextStyle(
+                        color: Colors.greenAccent,
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                      ),
+                    ),
+                  );
+                },
+              ),
+        ),
+      ],
     );
   }
 }

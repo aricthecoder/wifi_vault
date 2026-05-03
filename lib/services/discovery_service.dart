@@ -26,7 +26,7 @@ class DiscoveryService {
     _isRunning = true;
 
     try {
-      _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, _broadcastPort);
+      _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, _broadcastPort, reuseAddress: true, reusePort: true);
       _socket!.broadcastEnabled = true;
 
       _socket!.listen((RawSocketEvent event) {
@@ -55,9 +55,22 @@ class DiscoveryService {
         final data = utf8.encode(message);
         
         try {
+          // Send to global broadcast
           _socket!.send(data, InternetAddress('255.255.255.255'), _broadcastPort);
         } catch (e) {
           print("Broadcast error (255.255.255.255 failed): $e");
+        }
+
+        try {
+          // Send to subnet-specific broadcast (e.g. 192.168.1.255)
+          final parts = localIp.split('.');
+          if (parts.length == 4) {
+            parts[3] = '255';
+            final subnetBroadcast = parts.join('.');
+            _socket!.send(data, InternetAddress(subnetBroadcast), _broadcastPort);
+          }
+        } catch (e) {
+          print("Broadcast error (subnet failed): $e");
         }
       });
     } catch (e) {
