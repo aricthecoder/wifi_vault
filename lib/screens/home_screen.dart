@@ -219,10 +219,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 _buildPinCard(),
                 const SizedBox(height: 24),
                 _buildQrCard(serverUrl),
-                if (_nearbyVaults.isNotEmpty) ...[
-                  const SizedBox(height: 32),
-                  _buildNearbyVaults(),
-                ],
+                const SizedBox(height: 32),
+                _buildTransferSection(),
                 const SizedBox(height: 32),
                 _buildTerminalLogs(),
                 const SizedBox(height: 40),
@@ -500,43 +498,104 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildNearbyVaults() {
+  Future<void> _showManualConnectDialog() async {
+    String? ipAddress;
+    await showDialog(
+      context: context,
+      builder: (context) {
+        final ctrl = TextEditingController();
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Connect Manually'),
+          content: TextField(
+            controller: ctrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              hintText: "Enter IP (e.g. 192.168.1.5)",
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context), 
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey))
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary),
+              onPressed: () { ipAddress = ctrl.text.trim(); Navigator.pop(context); }, 
+              child: const Text('Next')
+            ),
+          ],
+        );
+      }
+    );
+
+    if (ipAddress != null && ipAddress!.isNotEmpty) {
+      _sendFileToVault(DiscoveredVault(ipAddress!, 8080, DateTime.now()));
+    }
+  }
+
+  Widget _buildTransferSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Icon(Icons.radar, color: Colors.purpleAccent, size: 20),
-            const SizedBox(width: 8),
-            const Text(
-              'Nearby Vaults',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+            Row(
+              children: [
+                const Icon(Icons.radar, color: Colors.purpleAccent, size: 20),
+                const SizedBox(width: 8),
+                const Text(
+                  'App-to-App Transfer',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ],
             ),
+            TextButton.icon(
+              onPressed: _showManualConnectDialog,
+              icon: const Icon(Icons.add_link, color: Colors.purpleAccent, size: 16),
+              label: const Text('Manual IP', style: TextStyle(color: Colors.purpleAccent)),
+            )
           ],
         ),
         const SizedBox(height: 16),
-        ..._nearbyVaults.map((vault) => Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            color: Colors.purpleAccent.withOpacity(0.05),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.purpleAccent.withOpacity(0.3)),
-          ),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            leading: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: Colors.purpleAccent.withOpacity(0.2), shape: BoxShape.circle),
-              child: const Icon(Icons.phone_android, color: Colors.purpleAccent),
+        if (_nearbyVaults.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.purpleAccent.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.purpleAccent.withOpacity(0.1)),
             ),
-            title: Text(vault.ip, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-            subtitle: const Text('Tap to send file', style: TextStyle(color: Colors.white54)),
-            trailing: IconButton(
-              icon: const Icon(Icons.send_rounded, color: Colors.purpleAccent),
-              onPressed: () => _sendFileToVault(vault),
+            child: const Center(
+              child: Text('No vaults found automatically.', style: TextStyle(color: Colors.white54, fontStyle: FontStyle.italic)),
             ),
-          ),
-        )).toList(),
+          )
+        else
+          ..._nearbyVaults.map((vault) => Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: Colors.purpleAccent.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.purpleAccent.withOpacity(0.3)),
+            ),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              leading: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(color: Colors.purpleAccent.withOpacity(0.2), shape: BoxShape.circle),
+                child: const Icon(Icons.phone_android, color: Colors.purpleAccent),
+              ),
+              title: Text(vault.ip, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+              subtitle: const Text('Tap to send file', style: TextStyle(color: Colors.white54)),
+              trailing: IconButton(
+                icon: const Icon(Icons.send_rounded, color: Colors.purpleAccent),
+                onPressed: () => _sendFileToVault(vault),
+              ),
+            ),
+          )).toList(),
       ],
     );
   }
