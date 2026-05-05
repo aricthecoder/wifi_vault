@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:async';
 import 'package:mime/mime.dart';
+import 'package:flutter/foundation.dart';
 
 /// Represents a file shared via a capability URL (an unguessable token-based link).
 /// CN concept: TTL (Time-To-Live) — each share has a fixed lifetime before expiry,
@@ -34,7 +35,7 @@ class SharedFile {
         'token': token,
         'fileName': fileName,
         'fileSize': fileSize,
-        'fileSizeFormatted': _fmtBytes(fileSize),
+        'fileSizeFormatted': fmtBytes(fileSize),
         'mimeType': mimeType,
         'createdAt': createdAt.toIso8601String(),
         'expiresAt': expiresAt.toIso8601String(),
@@ -43,7 +44,7 @@ class SharedFile {
         'isExpired': isExpired,
       };
 
-  static String _fmtBytes(int b) {
+  static String fmtBytes(int b) {
     if (b < 1024) return '$b B';
     if (b < 1048576) return '${(b / 1024).toStringAsFixed(1)} KB';
     if (b < 1073741824) return '${(b / 1048576).toStringAsFixed(1)} MB';
@@ -95,7 +96,7 @@ class ShareService {
       expiresAt: now.add(ttl),
     );
     _shares[token] = share;
-    print('Share created: $token → $fileName (TTL: ${ttl.inHours}h)');
+    debugPrint('Share created: $token → $fileName (TTL: ${ttl.inHours}h)');
     return share;
   }
 
@@ -131,7 +132,7 @@ class ShareService {
     for (final e in expired) {
       _deleteShare(e.key, e.value);
     }
-    if (expired.isNotEmpty) print('Share cleanup: removed ${expired.length} expired shares');
+    if (expired.isNotEmpty) debugPrint('Share cleanup: removed ${expired.length} expired shares');
   }
 
   void _deleteShare(String token, SharedFile share) {

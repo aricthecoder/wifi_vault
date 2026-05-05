@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'web_ui.dart';
 import 'package:archive/archive_io.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'scanner_service.dart';
 import 'chat_service.dart';
 import 'speedtest_service.dart';
@@ -28,13 +29,13 @@ class ServerService {
   Future<void> startServer() async {
     try {
       _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
-      print("Server running on port ${_server!.port}");
+      debugPrint("Server running on port ${_server!.port}");
       
       _server!.listen((HttpRequest request) {
         _handleRequest(request);
       });
     } catch (e) {
-      print("Error starting server: $e");
+      debugPrint("Error starting server: $e");
       rethrow;
     }
   }
@@ -45,7 +46,7 @@ class ServerService {
     _stats.reset();
     _server?.close(force: true);
     _server = null;
-    print("Server stopped");
+    debugPrint("Server stopped");
   }
 
 
@@ -332,7 +333,7 @@ Future<void> _handleUpload(HttpRequest request, HttpResponse response) async {
       response.statusCode = HttpStatus.ok;
       await response.close();
     } catch (e) {
-      print("Error handling upload: $e");
+      debugPrint("Error handling upload: $e");
       response.statusCode = HttpStatus.internalServerError;
       response.write("Upload failed");
       await response.close();
@@ -382,7 +383,7 @@ Future<void> _handleUpload(HttpRequest request, HttpResponse response) async {
       }
 
     } catch (e) {
-      print("Error creating zip: $e");
+      debugPrint("Error creating zip: $e");
       response.statusCode = HttpStatus.internalServerError;
       response.write("Failed to create ZIP");
       await response.close();
@@ -443,7 +444,7 @@ Future<void> _handleUpload(HttpRequest request, HttpResponse response) async {
       }
 
     } catch (e) {
-      print("Error creating selected zip: $e");
+      debugPrint("Error creating selected zip: $e");
       response.statusCode = HttpStatus.internalServerError;
       response.write("Failed to create ZIP");
       await response.close();
@@ -492,11 +493,12 @@ Future<void> _handleUpload(HttpRequest request, HttpResponse response) async {
         final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
         
         String formattedSize;
-        if (sizeBytes <= 0) formattedSize = "0 B";
-        else {
+        if (sizeBytes <= 0) {
+          formattedSize = "0 B";
+        } else {
           const suffixes = ["B", "KB", "MB", "GB", "TB"];
           var i = (log(sizeBytes) / log(1024)).floor();
-          formattedSize = ((sizeBytes / pow(1024, i)).toStringAsFixed(1)) + ' ' + suffixes[i];
+          formattedSize = '${(sizeBytes / pow(1024, i)).toStringAsFixed(1)} ${suffixes[i]}';
         }
 
         filesData.add({
@@ -564,7 +566,7 @@ Future<void> _handleUpload(HttpRequest request, HttpResponse response) async {
       try {
         await file.openRead(start, end + 1).pipe(response);
       } catch (e) {
-        print("Error serving partial file: $e");
+        debugPrint("Error serving partial file: $e");
         await response.close();
       }
     } else {
@@ -573,7 +575,7 @@ Future<void> _handleUpload(HttpRequest request, HttpResponse response) async {
       try {
         await file.openRead().pipe(response);
       } catch (e) {
-        print("Error serving file: $e");
+        debugPrint("Error serving file: $e");
         response.statusCode = HttpStatus.internalServerError;
         await response.close();
       }
@@ -644,7 +646,7 @@ Future<void> _handleUpload(HttpRequest request, HttpResponse response) async {
       }
       await response.close();
     } catch (e) {
-      print('Share upload error: $e');
+      debugPrint('Share upload error: $e');
       response.statusCode = HttpStatus.internalServerError;
       response.write(jsonEncode({'error': e.toString()}));
       await response.close();
@@ -683,7 +685,7 @@ h1{font-size:22px;color:#f8fafc;font-weight:700;margin-bottom:8px;word-break:bre
   <div class="icon">📦</div>
   <h1>${share.fileName}</h1>
   <p class="meta">Shared via WiFi Vault</p>
-  <span class="stat">📁 ${SharedFile._fmtBytes(share.fileSize)}</span>
+  <span class="stat">📁 ${SharedFile.fmtBytes(share.fileSize)}</span>
   <span class="stat">⬇️ ${share.downloadCount} downloads</span>
   <span class="ttl">⏱ Expires in $ttlStr</span>
   <a class="btn" href="$downloadUrl">⬇️ Download File</a>

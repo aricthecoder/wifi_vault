@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 
 class ChatService {
   final List<WebSocket> _clients = [];
@@ -44,7 +45,7 @@ class ChatService {
           _history.add(msg);
           _broadcast(jsonEncode(msg));
         } catch (e) {
-          print('Chat parse error: $e');
+          debugPrint('Chat parse error: $e');
         }
       },
       onDone: () {

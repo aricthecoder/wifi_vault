@@ -1,6 +1,7 @@
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 
 class NetworkUtils {
   static Future<String?> getLocalIpAddress() async {
@@ -61,7 +62,7 @@ class NetworkUtils {
       }
       return ip;
     } catch (e) {
-      print("Failed to get IP: $e");
+      debugPrint("Failed to get IP: $e");
       return null;
     }
   }

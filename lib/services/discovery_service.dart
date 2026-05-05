@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:convert';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 
 class DiscoveredVault {
   final String ip;
@@ -58,7 +59,7 @@ class DiscoveryService {
           // Send to global broadcast
           _socket!.send(data, InternetAddress('255.255.255.255'), _broadcastPort);
         } catch (e) {
-          print("Broadcast error (255.255.255.255 failed): $e");
+          debugPrint("Broadcast error (255.255.255.255 failed): $e");
         }
 
         try {
@@ -70,11 +71,11 @@ class DiscoveryService {
             _socket!.send(data, InternetAddress(subnetBroadcast), _broadcastPort);
           }
         } catch (e) {
-          print("Broadcast error (subnet failed): $e");
+          debugPrint("Broadcast error (subnet failed): $e");
         }
       });
     } catch (e) {
-      print('Discovery Service Error: $e');
+      debugPrint('Discovery Service Error: $e');
     }
   }
 
