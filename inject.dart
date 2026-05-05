@@ -9,7 +9,7 @@ void main() {
   // actually in a raw string r''' ... ''' we don't need to escape \$ at all.
   
   // We can just concatenate strings.
-  final dartCode = "const String webUiHtml = r'''\n" + htmlContent + "\n''';\n";
+  final dartCode = "const String webUiHtml = r'''\n$htmlContent\n''';\n";
   dartFile.writeAsStringSync(dartCode);
-  print('Injected successfully!');
+  stdout.writeln('Injected successfully!');
 }

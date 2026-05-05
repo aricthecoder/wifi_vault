@@ -95,3 +95,6 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+dependency_overrides:
+  objective_c: ^6.0.0
+  path_provider_foundation: 2.4.0

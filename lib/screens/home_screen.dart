@@ -23,7 +23,7 @@ class _HomeScreenState extends State<HomeScreen> {
   ServerService? _serverService;
   bool _isServerRunning = false;
   String? _currentPin;
-  List<String> _serverLogs = [];
+  final List<String> _serverLogs = [];
   DiscoveryService? _discoveryService;
   List<DiscoveredVault> _nearbyVaults = [];
 
@@ -239,7 +239,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Center(
                   child: Column(
                     children: [
-                      Icon(Icons.wifi_lock, size: 80, color: Colors.grey.withOpacity(0.2)),
+                      Icon(Icons.wifi_lock, size: 80, color: Colors.grey.withValues(alpha: 0.2)),
                       const SizedBox(height: 16),
                       Text(
                         'Server Offline',
@@ -287,7 +287,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       shape: BoxShape.circle,
                       color: _isServerRunning ? Colors.greenAccent : Colors.grey,
                       boxShadow: _isServerRunning ? [
-                        BoxShadow(color: Colors.greenAccent.withOpacity(0.5), blurRadius: 8)
+                        BoxShadow(color: Colors.greenAccent.withValues(alpha: 0.5), blurRadius: 8)
                       ] : [],
                     ),
                   ),
@@ -324,7 +324,7 @@ class _HomeScreenState extends State<HomeScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
       ),
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -362,7 +362,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: _isServerRunning ? Colors.transparent : Colors.blueAccent.withOpacity(0.1),
+                    color: _isServerRunning ? Colors.transparent : Colors.blueAccent.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
@@ -396,7 +396,7 @@ class _HomeScreenState extends State<HomeScreen> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: (_isServerRunning ? Colors.redAccent : const Color(0xFF3B82F6)).withOpacity(0.3),
+              color: (_isServerRunning ? Colors.redAccent : const Color(0xFF3B82F6)).withValues(alpha: 0.3),
               blurRadius: 16,
               offset: const Offset(0, 8),
             )
@@ -427,7 +427,7 @@ class _HomeScreenState extends State<HomeScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+        border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
       ),
       child: Column(
         children: [
@@ -484,7 +484,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
+                color: Colors.white.withValues(alpha: 0.05),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
@@ -580,9 +580,9 @@ class _HomeScreenState extends State<HomeScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.purpleAccent.withOpacity(0.05),
+              color: Colors.purpleAccent.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.purpleAccent.withOpacity(0.1)),
+              border: Border.all(color: Colors.purpleAccent.withValues(alpha: 0.1)),
             ),
             child: const Center(
               child: Text('No vaults found automatically.', style: TextStyle(color: Colors.white54, fontStyle: FontStyle.italic)),
@@ -592,15 +592,15 @@ class _HomeScreenState extends State<HomeScreen> {
           ..._nearbyVaults.map((vault) => Container(
             margin: const EdgeInsets.only(bottom: 12),
             decoration: BoxDecoration(
-              color: Colors.purpleAccent.withOpacity(0.05),
+              color: Colors.purpleAccent.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.purpleAccent.withOpacity(0.3)),
+              border: Border.all(color: Colors.purpleAccent.withValues(alpha: 0.3)),
             ),
             child: ListTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               leading: Container(
                 padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(color: Colors.purpleAccent.withOpacity(0.2), shape: BoxShape.circle),
+                decoration: BoxDecoration(color: Colors.purpleAccent.withValues(alpha: 0.2), shape: BoxShape.circle),
                 child: const Icon(Icons.phone_android, color: Colors.purpleAccent),
               ),
               title: Text(vault.ip, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
@@ -610,7 +610,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 onPressed: () => _sendFileToVault(vault),
               ),
             ),
-          )).toList(),
+          )),
       ],
     );
   }

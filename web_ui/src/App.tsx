@@ -1,420 +1,497 @@
-import React, { useState, useEffect } from 'react';
-import { Download, Upload, ShieldCheck, X, File as FileIcon, Image as ImageIcon, Film, Music, FileText, Archive, Folder, Home, ChevronRight, Clipboard as ClipboardIcon, Copy, Send } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useRef } from 'react';
 
-type VaultFile = {
-  name: string;
-  ext: string;
-  size: string;
-  isDir?: boolean;
-};
+type Tab = 'files' | 'share' | 'clipboard' | 'chat' | 'speedtest' | 'tools';
+type VaultFile = { name: string; ext: string; size: string; isDir?: boolean };
+type ShareItem = { token: string; fileName: string; fileSizeFormatted: string; shareUrl: string; downloadCount: number; ttlSeconds: number; expiresAt: string };
+type ChatMsg = { type: 'message' | 'system'; sender?: string; text: string; timestamp: string };
+type Stats = { uptime: string; totalRequests: number; bytesInFormatted: string; bytesOutFormatted: string; uniqueClients: number; requestsPerMin: number; chatClients: number };
 
-function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+export default function App() {
+  const [authed, setAuthed] = useState(false);
   const [pin, setPin] = useState('');
-  const [error, setError] = useState('');
-  
+  const [pinError, setPinError] = useState('');
+  const [tab, setTab] = useState<Tab>('files');
+
+  // Files
   const [files, setFiles] = useState<VaultFile[]>([]);
-  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
-  const [previewFile, setPreviewFile] = useState<VaultFile | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [currentPath, setCurrentPath] = useState('');
-  
-  const [activeTab, setActiveTab] = useState<'files' | 'clipboard'>('files');
-  const [deviceClipboard, setDeviceClipboard] = useState('');
-  const [sendClipboardText, setSendClipboardText] = useState('');
-  const [isSendingClipboard, setIsSendingClipboard] = useState(false);
+  const [curPath, setCurPath] = useState('');
+  const [uploading, setUploading] = useState(false);
+
+  // Share
+  const [shares, setShares] = useState<ShareItem[]>([]);
+  const [shareUploading, setShareUploading] = useState(false);
+  const [newShare, setNewShare] = useState<ShareItem | null>(null);
+  const [copied, setCopied] = useState('');
+
+  // Clipboard
+  const [phoneClip, setPhoneClip] = useState('');
+  const [sendClip, setSendClip] = useState('');
+
+  // Chat
+  const [msgs, setMsgs] = useState<ChatMsg[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const wsRef = useRef<WebSocket | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  // Speed Test
+  const [testRunning, setTestRunning] = useState(false);
+  const [testPhase, setTestPhase] = useState('');
+  const [pingMs, setPingMs] = useState<number | null>(null);
+  const [dlMbps, setDlMbps] = useState<number | null>(null);
+  const [ulMbps, setUlMbps] = useState<number | null>(null);
+
+  // Tools
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [mac, setMac] = useState('');
+  const [wolMsg, setWolMsg] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [scanResults, setScanResults] = useState<{ip:string;hostname:string;responseMs:number}[]>([]);
+
+  const headers = { 'X-Vault-Pin': pin };
 
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
-    if (isAuthenticated && activeTab === 'clipboard') {
-      const fetchClipboard = async () => {
-        try {
-          const res = await fetch('/api/clipboard');
-          if (res.ok) {
-            const data = await res.json();
-            setDeviceClipboard(data.text || '');
-          }
-        } catch (err) {
-          console.error('Failed to fetch clipboard', err);
-        }
-      };
-      
-      fetchClipboard(); // Initial fetch
-      interval = setInterval(fetchClipboard, 3000); // Poll every 3 seconds
-    }
-    return () => clearInterval(interval);
-  }, [isAuthenticated, activeTab]);
+    if (!authed) return;
+    if (tab === 'files') fetchFiles();
+    if (tab === 'share') fetchShares();
+    if (tab === 'clipboard') fetchClip();
+    if (tab === 'chat') connectChat();
+    if (tab === 'tools') { fetchStats(); const t = setInterval(fetchStats, 3000); return () => clearInterval(t); }
+    return () => { if (tab !== 'chat' && wsRef.current) { wsRef.current.close(); wsRef.current = null; } };
+  }, [authed, tab, curPath]);
 
-  const handleSendClipboard = async () => {
-    if (!sendClipboardText) return;
-    setIsSendingClipboard(true);
-    try {
-      await fetch('/api/clipboard', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: sendClipboardText })
-      });
-      setSendClipboardText('');
-    } catch (err) {
-      console.error('Failed to send clipboard', err);
-    }
-    setIsSendingClipboard(false);
-  };
+  useEffect(() => { chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      fetchFiles();
-    }
-  }, [isAuthenticated, currentPath]);
-
-  const handleLogin = async (e: React.FormEvent) => {
+  async function login(e: React.FormEvent) {
     e.preventDefault();
-    try {
-      const res = await fetch(`/api/login?pin=${pin}`, { method: 'POST' });
-      if (res.ok) {
-        setIsAuthenticated(true);
-        setError('');
-      } else {
-        setError('Incorrect PIN. Try again.');
-      }
-    } catch (err) {
-      setError('Connection error.');
-    }
-  };
-
-  const fetchFiles = async () => {
-    try {
-      const res = await fetch(`/api/files?path=${encodeURIComponent(currentPath)}`);
-      if (res.status === 401) {
-        setIsAuthenticated(false);
-        return;
-      }
-      const data = await res.json();
-      setFiles(data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    setIsUploading(true);
-    
-    for (let i = 0; i < e.target.files.length; i++) {
-      const formData = new FormData();
-      formData.append('file', e.target.files[i]);
-      // Currently the backend only supports uploading to root. For subfolders, backend needs ?path= update. 
-      // We will upload to root for now as requested.
-      await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-    }
-    
-    setIsUploading(false);
-    fetchFiles();
-  };
-
-
-  const downloadSelectedAsZip = () => {
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/api/download_selected_zip';
-    
-    const input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'files';
-    input.value = Array.from(selectedFiles).join('|');
-    
-    form.appendChild(input);
-    document.body.appendChild(form);
-    form.submit();
-    document.body.removeChild(form);
-    setSelectedFiles(new Set());
-  };
-
-  const downloadAll = () => {
-    window.location.href = '/api/download_all';
-  };
-
-  const getIcon = (file: VaultFile) => {
-    if (file.isDir) return <Folder size={48} color="#fbbf24" fill="#fde68a" />;
-    const ext = file.ext;
-    if (['jpg','jpeg','png','gif','webp'].includes(ext)) return <ImageIcon size={48} color="#60a5fa" />;
-    if (['mp4','mov','mkv','avi'].includes(ext)) return <Film size={48} color="#f87171" />;
-    if (['mp3','wav','m4a'].includes(ext)) return <Music size={48} color="#a78bfa" />;
-    if (['pdf'].includes(ext)) return <FileText size={48} color="#fb923c" />;
-    if (['zip','rar','tar','gz'].includes(ext)) return <Archive size={48} color="#fbbf24" />;
-    return <FileIcon size={48} color="#94a3b8" />;
-  };
-
-  const canPreview = (ext: string) => {
-    return ['jpg','jpeg','png','gif','webp','mp4','mov','mkv','avi','mp3','wav','m4a','pdf'].includes(ext);
-  };
-
-  const getFullPath = (fileName: string) => {
-    return currentPath ? `${currentPath}/${fileName}` : fileName;
-  };
-
-  const handleCardClick = (file: VaultFile) => {
-    if (file.isDir) {
-      setCurrentPath(getFullPath(file.name));
-      return;
-    }
-
-    if (canPreview(file.ext)) {
-      setPreviewFile({ ...file, name: getFullPath(file.name) });
-    } else {
-      window.location.href = `/api/download?path=${encodeURIComponent(getFullPath(file.name))}`;
-    }
-  };
-
-  const navigateToBreadcrumb = (index: number) => {
-    const parts = currentPath.split('/');
-    const newPath = parts.slice(0, index + 1).join('/');
-    setCurrentPath(newPath);
-  };
-
-  if (!isAuthenticated) {
-    return (
-      <div className="login-container">
-        <motion.div 
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="glass-panel login-card"
-        >
-          <ShieldCheck size={48} color="#3b82f6" style={{ margin: '0 auto' }} />
-          <h1>WiFi Vault</h1>
-          <p style={{ color: 'var(--text-muted)' }}>Enter the 4-digit PIN shown on your phone to unlock.</p>
-          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <input 
-              type="password" 
-              maxLength={4} 
-              className="pin-input" 
-              value={pin}
-              onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ''))}
-              placeholder="••••"
-              autoFocus
-            />
-            {error && <div style={{ color: '#ef4444' }}>{error}</div>}
-            <button type="submit" className="btn" style={{ justifyContent: 'center' }}>Unlock Vault</button>
-          </form>
-        </motion.div>
-      </div>
-    );
+    const r = await fetch(`/api/login?pin=${pin}`, { method: 'POST' });
+    if (r.ok) { setAuthed(true); setPinError(''); }
+    else setPinError('Incorrect PIN');
   }
 
-  const pathParts = currentPath.split('/').filter(Boolean);
+  async function fetchFiles() {
+    const r = await fetch(`/api/files?path=${encodeURIComponent(curPath)}`, { headers });
+    if (r.ok) setFiles(await r.json());
+  }
+
+  async function fetchShares() {
+    const r = await fetch('/api/share/list', { headers });
+    if (r.ok) setShares(await r.json());
+  }
+
+  async function fetchClip() {
+    const r = await fetch('/api/clipboard', { headers });
+    if (r.ok) { const d = await r.json(); setPhoneClip(d.text || ''); }
+  }
+
+  async function fetchStats() {
+    const r = await fetch('/api/stats', { headers });
+    if (r.ok) setStats(await r.json());
+  }
+
+  function connectChat() {
+    if (wsRef.current) return;
+    const ws = new WebSocket(`ws://${location.host}/ws/chat`);
+    ws.onmessage = e => {
+      const m = JSON.parse(e.data) as ChatMsg;
+      setMsgs(prev => [...prev.slice(-99), m]);
+    };
+    ws.onclose = () => { wsRef.current = null; };
+    wsRef.current = ws;
+  }
+
+  function sendChat(e: React.FormEvent) {
+    e.preventDefault();
+    if (!chatInput.trim() || !wsRef.current) return;
+    wsRef.current.send(JSON.stringify({ text: chatInput }));
+    setChatInput('');
+  }
+
+  async function handleShareUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]; if (!file) return;
+    setShareUploading(true); setNewShare(null);
+    const fd = new FormData(); fd.append('file', file);
+    const r = await fetch('/api/share/upload', { method: 'POST', headers, body: fd });
+    if (r.ok) { const d = await r.json(); setNewShare(d); fetchShares(); }
+    setShareUploading(false);
+  }
+
+  async function deleteShare(token: string) {
+    await fetch(`/api/share/delete/${token}`, { method: 'POST', headers });
+    fetchShares();
+  }
+
+  function copyLink(url: string, token: string) {
+    navigator.clipboard.writeText(url);
+    setCopied(token); setTimeout(() => setCopied(''), 2000);
+  }
+
+  async function runSpeedTest() {
+    setTestRunning(true); setPingMs(null); setDlMbps(null); setUlMbps(null);
+    // Ping (5 RTT samples)
+    setTestPhase('Measuring latency...');
+    let totalMs = 0;
+    for (let i = 0; i < 5; i++) {
+      const t0 = performance.now();
+      await fetch('/api/speedtest/ping', { headers });
+      totalMs += performance.now() - t0;
+    }
+    setPingMs(Math.round(totalMs / 5));
+    // Download
+    setTestPhase('Testing download speed...');
+    const t1 = performance.now();
+    const dlRes = await fetch('/api/speedtest/download?size=10', { headers });
+    const buf = await dlRes.arrayBuffer();
+    const dlTime = (performance.now() - t1) / 1000;
+    setDlMbps(parseFloat(((buf.byteLength * 8) / dlTime / 1e6).toFixed(2)));
+    // Upload
+    setTestPhase('Testing upload speed...');
+    const chunk = new Uint8Array(5 * 1024 * 1024);
+    const ulRes = await fetch('/api/speedtest/upload', { method: 'POST', headers, body: chunk });
+    const ulData = await ulRes.json();
+    setUlMbps(parseFloat(ulData.mbps));
+    setTestPhase('Done!'); setTestRunning(false);
+  }
+
+  async function sendWol(e: React.FormEvent) {
+    e.preventDefault();
+    const r = await fetch('/api/wol', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ mac }) });
+    const d = await r.json();
+    setWolMsg(d.success ? `✅ Magic packet sent to ${mac}` : `❌ ${d.error}`);
+    setTimeout(() => setWolMsg(''), 4000);
+  }
+
+  async function runScan() {
+    setScanning(true); setScanResults([]);
+    const r = await fetch('/api/scan', { headers });
+    if (r.ok) setScanResults(await r.json());
+    setScanning(false);
+  }
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!e.target.files?.length) return;
+    setUploading(true);
+    for (const f of Array.from(e.target.files)) {
+      const fd = new FormData(); fd.append('file', f);
+      await fetch('/api/upload', { method: 'POST', headers, body: fd });
+    }
+    setUploading(false); fetchFiles();
+  }
+
+  const fmtTtl = (secs: number) => {
+    const h = Math.floor(secs / 3600); const m = Math.floor((secs % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  };
+
+  if (!authed) return (
+    <div className="login-wrap">
+      <div className="login-card glass">
+        <div className="lock-icon">🔒</div>
+        <h1>WiFi Vault</h1>
+        <p className="muted">Enter the 4-digit PIN from your phone</p>
+        <form onSubmit={login}>
+          <input className="pin-inp" type="password" maxLength={4} placeholder="••••" value={pin}
+            onChange={e => setPin(e.target.value.replace(/\D/g, ''))} autoFocus />
+          {pinError && <p className="err">{pinError}</p>}
+          <button className="btn" type="submit">Unlock Vault</button>
+        </form>
+      </div>
+    </div>
+  );
+
+  const TABS: { id: Tab; label: string; icon: string }[] = [
+    { id: 'files', label: 'Files', icon: '📁' },
+    { id: 'share', label: 'Share', icon: '🔗' },
+    { id: 'clipboard', label: 'Clipboard', icon: '📋' },
+    { id: 'chat', label: 'Chat', icon: '💬' },
+    { id: 'speedtest', label: 'Speed', icon: '📶' },
+    { id: 'tools', label: 'Tools', icon: '🛠️' },
+  ];
 
   return (
-    <div className="container">
-      <header>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <h1>WiFi Vault</h1>
-          <div className="tabs">
-            <button className={`tab ${activeTab === 'files' ? 'active' : ''}`} onClick={() => setActiveTab('files')}>
-              <Folder size={18} /> Files
+    <div className="app">
+      <header className="header">
+        <h1 className="brand">WiFi Vault</h1>
+        <nav className="tabs">
+          {TABS.map(t => (
+            <button key={t.id} className={`tab-btn ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>
+              <span>{t.icon}</span> <span className="tab-label">{t.label}</span>
             </button>
-            <button className={`tab ${activeTab === 'clipboard' ? 'active' : ''}`} onClick={() => setActiveTab('clipboard')}>
-              <ClipboardIcon size={18} /> Clipboard
-            </button>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          {activeTab === 'files' && (
-            <>
-              <label className="btn btn-secondary">
-            <Upload size={18} />
-            Upload to Vault
-            <input type="file" multiple onChange={handleUpload} style={{ display: 'none' }} />
-          </label>
-              <button className="btn btn-secondary" onClick={downloadAll}>
-                <Download size={18} />
-                Download All (ZIP)
-              </button>
-            </>
-          )}
-        </div>
+          ))}
+        </nav>
       </header>
 
-      {activeTab === 'clipboard' && (
-        <div className="clipboard-container">
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-panel clipboard-card">
-            <h2><ClipboardIcon size={24} style={{ marginRight: '8px', verticalAlign: 'middle', color: 'var(--accent)' }} /> Phone's Clipboard</h2>
-            <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>This text is currently copied on your phone.</p>
-            <div className="clipboard-read-area">
-              {deviceClipboard ? deviceClipboard : <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Clipboard is empty.</span>}
+      <main className="main">
+
+        {/* ── FILES TAB ── */}
+        {tab === 'files' && (
+          <div>
+            <div className="toolbar">
+              <label className="btn btn-sm">⬆️ Upload <input type="file" multiple style={{ display: 'none' }} onChange={handleFileUpload} /></label>
+              <button className="btn btn-sm btn-ghost" onClick={() => { window.location.href = '/api/download_all'; }}>⬇️ Download All</button>
             </div>
-            <button className="btn" onClick={() => navigator.clipboard.writeText(deviceClipboard)} disabled={!deviceClipboard} style={{ marginTop: '16px' }}>
-              <Copy size={18} /> Copy to PC
-            </button>
-          </motion.div>
-
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="glass-panel clipboard-card">
-            <h2><Send size={24} style={{ marginRight: '8px', verticalAlign: 'middle', color: 'var(--accent)' }} /> Send to Phone</h2>
-            <p style={{ color: 'var(--text-muted)', marginBottom: '16px' }}>Type or paste text here to instantly copy it to your phone.</p>
-            <textarea 
-              className="clipboard-write-area" 
-              placeholder="Enter text..." 
-              value={sendClipboardText}
-              onChange={(e) => setSendClipboardText(e.target.value)}
-              rows={5}
-            />
-            <button className="btn" onClick={handleSendClipboard} disabled={!sendClipboardText || isSendingClipboard} style={{ marginTop: '16px' }}>
-              {isSendingClipboard ? 'Sending...' : 'Send to Phone'}
-            </button>
-          </motion.div>
-        </div>
-      )}
-
-      {activeTab === 'files' && (
-        <>
-          {/* Breadcrumbs Navigation */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '24px', padding: '12px', background: 'var(--card-bg)', borderRadius: '12px', border: '1px solid var(--border)' }}>
-        <button 
-          onClick={() => setCurrentPath('')} 
-          style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: currentPath ? 'var(--text-color)' : 'var(--accent)' }}
-        >
-          <Home size={18} style={{ marginRight: '4px' }} />
-          Root
-        </button>
-        {pathParts.map((part, index) => (
-          <React.Fragment key={index}>
-            <ChevronRight size={16} color="var(--text-muted)" />
-            <button 
-              onClick={() => navigateToBreadcrumb(index)}
-              style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '15px', color: index === pathParts.length - 1 ? 'var(--accent)' : 'var(--text-color)', fontWeight: index === pathParts.length - 1 ? 'bold' : 'normal' }}
-            >
-              {part}
-            </button>
-          </React.Fragment>
-        ))}
-      </div>
-
-      <div className="file-grid">
-        <AnimatePresence>
-          {files.map((file) => {
-            const fullPath = getFullPath(file.name);
-            return (
-              <motion.div
-                layout
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                key={fullPath}
-                className={`glass-panel file-card ${selectedFiles.has(fullPath) ? 'selected' : ''}`}
-                onClick={() => handleCardClick(file)}
-              >
-                {!file.isDir && (
-                  <div className="checkbox-wrapper" onClick={(e) => e.stopPropagation()}>
-                    <input 
-                      type="checkbox" 
-                      checked={selectedFiles.has(fullPath)}
-                      onChange={(e) => {
-                        const newSet = new Set(selectedFiles);
-                        if (e.target.checked) newSet.add(fullPath);
-                        else newSet.delete(fullPath);
-                        setSelectedFiles(newSet);
-                      }}
-                    />
+            {uploading && <div className="notice">Uploading...</div>}
+            <div className="breadcrumb">
+              <button onClick={() => setCurPath('')}>🏠 Root</button>
+              {curPath.split('/').filter(Boolean).map((p, i, arr) => (
+                <span key={i}> / <button onClick={() => setCurPath(arr.slice(0, i + 1).join('/'))}>{p}</button></span>
+              ))}
+            </div>
+            <div className="file-grid">
+              {files.map(f => {
+                const full = curPath ? `${curPath}/${f.name}` : f.name;
+                return (
+                  <div key={full} className="file-card glass" onClick={() => f.isDir ? setCurPath(full) : window.open(`/api/view?path=${encodeURIComponent(full)}`)}>
+                    <div className="file-icon">{f.isDir ? '📁' : '📄'}</div>
+                    <div className="file-name" title={f.name}>{f.name}</div>
+                    <div className="file-meta">
+                      <span>{f.size}</span>
+                      {!f.isDir && <a href={`/api/download?path=${encodeURIComponent(full)}`} onClick={e => e.stopPropagation()} download>↓</a>}
+                    </div>
                   </div>
-                )}
-                
-                <div className="file-icon-container">
-                  {getIcon(file)}
-                </div>
-                
-                <div className="file-name" title={file.name}>{file.name}</div>
-                
-                <div className="file-meta">
-                  <span>{file.size}</span>
-                  {!file.isDir && (
-                    <a 
-                      href={`/api/download?path=${encodeURIComponent(fullPath)}`} 
-                      download={file.name}
-                      onClick={(e) => e.stopPropagation()}
-                      style={{ color: 'var(--accent)', textDecoration: 'none' }}
-                    >
-                      Download
-                    </a>
-                  )}
-                </div>
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
-        
-        {files.length === 0 && (
-          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-            This folder is empty.
+                );
+              })}
+              {!files.length && <div className="empty">This folder is empty.</div>}
+            </div>
           </div>
         )}
-      </div>
 
-      <AnimatePresence>
-        {selectedFiles.size > 0 && (
-          <motion.div 
-            initial={{ y: 100, opacity: 0, x: '-50%' }}
-            animate={{ y: 0, opacity: 1, x: '-50%' }}
-            exit={{ y: 100, opacity: 0, x: '-50%' }}
-            className="glass-panel fab-container"
-          >
-            <span style={{ alignSelf: 'center', fontWeight: 'bold' }}>{selectedFiles.size} files selected</span>
-            <button className="btn" onClick={downloadSelectedAsZip}>
-              <Download size={18} /> Zip & Download
-            </button>
-            <button className="btn btn-secondary" onClick={() => setSelectedFiles(new Set())}>
-              Clear
-            </button>
-          </motion.div>
+        {/* ── SHARE TAB ── */}
+        {tab === 'share' && (
+          <div className="share-page">
+            <div className="section-header">
+              <h2>📤 Shareable Links</h2>
+              <p className="muted">Upload a file to get a public link — valid for 24 hours, downloadable by anyone.</p>
+            </div>
+
+            {/* CN Concepts Banner */}
+            <div className="cn-banner glass">
+              <span className="cn-tag">🔑 Capability URLs</span>
+              <span className="cn-tag">⏱ TTL 24h</span>
+              <span className="cn-tag">🌐 HTTP Content-Disposition</span>
+              <span className="cn-tag">🔄 Concurrent TCP Streams</span>
+            </div>
+
+            {/* Upload Zone */}
+            <label className="upload-zone glass">
+              <input type="file" style={{ display: 'none' }} onChange={handleShareUpload} disabled={shareUploading} />
+              {shareUploading ? (
+                <div className="uploading-state">
+                  <div className="spinner"></div>
+                  <p>Uploading & generating link...</p>
+                </div>
+              ) : (
+                <div className="upload-prompt">
+                  <div style={{ fontSize: 48 }}>📦</div>
+                  <p style={{ fontWeight: 700, fontSize: 18, marginTop: 8 }}>Click to Upload File</p>
+                  <p className="muted">Any file type · Max size limited by device RAM</p>
+                </div>
+              )}
+            </label>
+
+            {/* New Share Result */}
+            {newShare && (
+              <div className="share-result glass">
+                <div className="share-result-icon">✅</div>
+                <div className="share-result-info">
+                  <strong>{newShare.fileName}</strong>
+                  <span className="muted"> · {newShare.fileSizeFormatted}</span>
+                </div>
+                <div className="share-url-row">
+                  <input className="share-url-input" readOnly value={newShare.shareUrl} />
+                  <button className="btn btn-sm" onClick={() => copyLink(newShare.shareUrl, 'new')}>
+                    {copied === 'new' ? '✅ Copied!' : '📋 Copy'}
+                  </button>
+                </div>
+                <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                  Expires in {fmtTtl(newShare.ttlSeconds)} · Anyone with this link can download
+                </p>
+              </div>
+            )}
+
+            {/* Active Shares List */}
+            <h3 style={{ marginTop: 32, marginBottom: 16 }}>Active Shares ({shares.length})</h3>
+            {shares.length === 0 && <div className="empty">No active shares. Upload a file above.</div>}
+            <div className="share-list">
+              {shares.map(s => (
+                <div key={s.token} className="share-item glass">
+                  <div className="share-item-top">
+                    <div>
+                      <div className="share-file-name">{s.fileName}</div>
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        {s.fileSizeFormatted} · ⬇️ {s.downloadCount} downloads · ⏱ {fmtTtl(s.ttlSeconds)} left
+                      </div>
+                    </div>
+                    <button className="btn-icon danger" onClick={() => deleteShare(s.token)} title="Revoke link">🗑</button>
+                  </div>
+                  <div className="share-url-row">
+                    <code className="share-token">{s.shareUrl}</code>
+                    <button className="btn btn-sm" onClick={() => copyLink(s.shareUrl, s.token)}>
+                      {copied === s.token ? '✅' : '📋'}
+                    </button>
+                  </div>
+                  <div style={{ marginTop: 8 }}>
+                    <a className="btn btn-sm btn-ghost" href={`${s.shareUrl}/download`} target="_blank" rel="noreferrer">⬇️ Download</a>
+                  </div>
+                  {/* TTL progress bar */}
+                  <div className="ttl-bar-wrap">
+                    <div className="ttl-bar" style={{ width: `${Math.max(0, (s.ttlSeconds / 86400) * 100).toFixed(1)}%` }}></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
-      </AnimatePresence>
 
-      <AnimatePresence>
-        {previewFile && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="lightbox"
-            onClick={() => setPreviewFile(null)}
-          >
-            <button className="lightbox-close" onClick={() => setPreviewFile(null)}>
-              <X size={32} />
-            </button>
-            
-            <div onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
-              {['mp4','mov','mkv','avi'].includes(previewFile.ext) && (
-                <video controls autoPlay className="lightbox-content" src={`/api/view?path=${encodeURIComponent(previewFile.name)}`} />
-              )}
-              {['mp3','wav','m4a'].includes(previewFile.ext) && (
-                <audio controls autoPlay src={`/api/view?path=${encodeURIComponent(previewFile.name)}`} />
-              )}
-              {['pdf'].includes(previewFile.ext) && (
-                <iframe className="lightbox-content" src={`/api/view?path=${encodeURIComponent(previewFile.name)}`} style={{ width: '80vw', height: '80vh', background: 'white' }} />
-              )}
-              {['jpg','jpeg','png','gif','webp'].includes(previewFile.ext) && (
-                <img className="lightbox-content" src={`/api/view?path=${encodeURIComponent(previewFile.name)}`} alt="Preview" />
-              )}
-              <div style={{ color: 'white', marginTop: '16px', textAlign: 'center', fontSize: '18px' }}>
-                {previewFile.name.split('/').pop()}
+        {/* ── CLIPBOARD TAB ── */}
+        {tab === 'clipboard' && (
+          <div className="panel-2col">
+            <div className="glass card-pad">
+              <h3>📱 Phone's Clipboard</h3>
+              <p className="muted">Currently copied on your phone:</p>
+              <div className="clip-area">{phoneClip || <em className="muted">Empty</em>}</div>
+              <button className="btn" onClick={() => navigator.clipboard.writeText(phoneClip)} disabled={!phoneClip} style={{ marginTop: 12 }}>📋 Copy to PC</button>
+            </div>
+            <div className="glass card-pad">
+              <h3>💻 Send to Phone</h3>
+              <p className="muted">Type or paste text to copy it to your phone:</p>
+              <textarea className="clip-write" rows={5} value={sendClip} onChange={e => setSendClip(e.target.value)} placeholder="Enter text..." />
+              <button className="btn" style={{ marginTop: 12 }} disabled={!sendClip}
+                onClick={async () => { await fetch('/api/clipboard', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ text: sendClip }) }); setSendClip(''); }}>
+                📤 Send to Phone
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── CHAT TAB ── */}
+        {tab === 'chat' && (
+          <div className="chat-container">
+            <div className="cn-banner glass">
+              <span className="cn-tag">🔌 WebSocket (RFC 6455)</span>
+              <span className="cn-tag">⚡ Full-Duplex TCP</span>
+              <span className="cn-tag">📡 HTTP Upgrade Handshake</span>
+            </div>
+            <div className="chat-messages glass">
+              {msgs.map((m, i) => (
+                <div key={i} className={`chat-msg ${m.type}`}>
+                  {m.type === 'message' && <span className="chat-sender">{m.sender}: </span>}
+                  <span>{m.text}</span>
+                  <span className="chat-time">{new Date(m.timestamp).toLocaleTimeString()}</span>
+                </div>
+              ))}
+              {!msgs.length && <div className="empty">No messages yet. Say hello!</div>}
+              <div ref={chatBottomRef} />
+            </div>
+            <form className="chat-input-row" onSubmit={sendChat}>
+              <input className="chat-inp" value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Type a message..." />
+              <button className="btn" type="submit">Send</button>
+            </form>
+          </div>
+        )}
+
+        {/* ── SPEED TEST TAB ── */}
+        {tab === 'speedtest' && (
+          <div className="speed-page">
+            <div className="cn-banner glass">
+              <span className="cn-tag">📶 Throughput Measurement</span>
+              <span className="cn-tag">⏱ RTT / Latency</span>
+              <span className="cn-tag">🌐 Bandwidth Estimation</span>
+            </div>
+            <div className="speed-results glass">
+              <div className="speed-metric">
+                <div className="speed-val">{pingMs !== null ? `${pingMs}ms` : '--'}</div>
+                <div className="speed-label">Ping (RTT)</div>
+              </div>
+              <div className="speed-metric">
+                <div className="speed-val" style={{ color: '#34d399' }}>{dlMbps !== null ? `${dlMbps}` : '--'}</div>
+                <div className="speed-label">Download (Mbps)</div>
+              </div>
+              <div className="speed-metric">
+                <div className="speed-val" style={{ color: '#fb923c' }}>{ulMbps !== null ? `${ulMbps}` : '--'}</div>
+                <div className="speed-label">Upload (Mbps)</div>
               </div>
             </div>
-          </motion.div>
+            {testPhase && <div className="notice">{testPhase}</div>}
+            <button className="btn btn-lg" onClick={runSpeedTest} disabled={testRunning} style={{ marginTop: 24 }}>
+              {testRunning ? '⏳ Testing...' : '▶ Run Speed Test'}
+            </button>
+          </div>
         )}
-      </AnimatePresence>
-      </>
-      )}
 
-      {isUploading && (
-        <div className="overlay-loader">
-          <div className="loader"></div>
-          <div>Uploading... Please wait</div>
-        </div>
-      )}
+        {/* ── TOOLS TAB ── */}
+        {tab === 'tools' && (
+          <div>
+            {/* Network Stats */}
+            <h3 style={{ marginBottom: 16 }}>📊 Network Stats</h3>
+            <div className="cn-banner glass">
+              <span className="cn-tag">📈 Live Telemetry</span>
+              <span className="cn-tag">🔢 Protocol Counters</span>
+            </div>
+            {stats && (
+              <div className="stats-grid">
+                {[
+                  { label: 'Uptime', val: stats.uptime, icon: '⏱' },
+                  { label: 'Total Requests', val: stats.totalRequests, icon: '📨' },
+                  { label: 'Data Downloaded', val: stats.bytesOutFormatted, icon: '⬇️' },
+                  { label: 'Data Uploaded', val: stats.bytesInFormatted, icon: '⬆️' },
+                  { label: 'Unique Clients', val: stats.uniqueClients, icon: '👤' },
+                  { label: 'Req / Min', val: stats.requestsPerMin, icon: '⚡' },
+                  { label: 'Chat Clients', val: stats.chatClients, icon: '💬' },
+                ].map(s => (
+                  <div key={s.label} className="stat-tile glass">
+                    <div className="stat-icon">{s.icon}</div>
+                    <div className="stat-val">{s.val}</div>
+                    <div className="stat-label">{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* LAN Scanner */}
+            <h3 style={{ margin: '32px 0 16px' }}>🔍 LAN Scanner</h3>
+            <div className="cn-banner glass">
+              <span className="cn-tag">🌐 Subnet /24 Sweep</span>
+              <span className="cn-tag">🔌 TCP Reachability</span>
+              <span className="cn-tag">🔎 DNS Reverse Lookup</span>
+            </div>
+            <button className="btn" onClick={runScan} disabled={scanning} style={{ marginBottom: 16 }}>
+              {scanning ? '⏳ Scanning subnet...' : '🔍 Scan Network'}
+            </button>
+            {scanResults.length > 0 && (
+              <div className="scan-list glass">
+                <div className="scan-header"><span>IP Address</span><span>Hostname</span><span>Response</span></div>
+                {scanResults.map(r => (
+                  <div key={r.ip} className="scan-row">
+                    <span className="scan-ip">{r.ip}</span>
+                    <span className="muted">{r.hostname || '—'}</span>
+                    <span className="scan-ms">{r.responseMs}ms</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Wake-on-LAN */}
+            <h3 style={{ margin: '32px 0 16px' }}>💡 Wake-on-LAN</h3>
+            <div className="cn-banner glass">
+              <span className="cn-tag">🔮 UDP Magic Packet</span>
+              <span className="cn-tag">📡 Layer 2 Broadcast</span>
+              <span className="cn-tag">🖥 Remote Power On</span>
+            </div>
+            <div className="glass card-pad">
+              <form onSubmit={sendWol} style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <input className="text-inp" placeholder="AA:BB:CC:DD:EE:FF" value={mac}
+                  onChange={e => setMac(e.target.value)} style={{ flex: 1, minWidth: 200 }} />
+                <button className="btn" type="submit">⚡ Wake Device</button>
+              </form>
+              {wolMsg && <div className="notice" style={{ marginTop: 12 }}>{wolMsg}</div>}
+              <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>
+                Sends a 102-byte magic packet (6×0xFF + 16×MAC) via UDP broadcast on port 9.
+              </p>
+            </div>
+          </div>
+        )}
+
+      </main>
     </div>
   );
 }
-
-export default App;
